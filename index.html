@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales CRM</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--bg:#f5f6f8;--card:#fff;--text:#1d2433;--muted:#6b7385;--line:#e3e6ec;--brand:#2f5bea;--ok:#12805c;--bad:#c23b3b;--warn:#b86e00}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:15px}
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;flex:1}
+  header .who{color:var(--muted);font-size:13px}
+  nav{display:flex;gap:6px;padding:10px 16px;overflow-x:auto;background:var(--card);border-bottom:1px solid var(--line)}
+  nav button{border:1px solid var(--line);background:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;font-size:14px}
+  nav button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+  main{padding:16px;max-width:1100px;margin:0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  h2{font-size:16px;margin:0 0 12px}
+  label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+  input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
+  button.btn{background:var(--brand);color:#fff;border:0;padding:9px 16px;border-radius:8px;cursor:pointer;font:inherit}
+  button.btn.sec{background:#fff;color:var(--text);border:1px solid var(--line)}
+  button.sm{padding:5px 9px;font-size:13px;border-radius:6px;border:1px solid var(--line);background:#fff;cursor:pointer}
+  button.sm.ok{color:var(--ok);border-color:var(--ok)} button.sm.bad{color:var(--bad);border-color:var(--bad)}
+  .msg{padding:10px 12px;border-radius:8px;margin-top:12px;font-size:14px}
+  .msg.err{background:#fdecec;color:var(--bad);border:1px solid #f3c3c3}
+  .msg.warn{background:#fff4e0;color:var(--warn);border:1px solid #f1d9a8}
+  .msg.ok{background:#e6f6ef;color:var(--ok);border:1px solid #b9e3d1}
+  .tablewrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;background:#eef0f5}
+  .pill.won{background:#e6f6ef;color:var(--ok)} .pill.lost{background:#fdecec;color:var(--bad)} .pill.open{background:#e8eefd;color:var(--brand)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .stat b{display:block;font-size:24px} .stat span{color:var(--muted);font-size:13px}
+  .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--muted)} .center{max-width:380px;margin:60px auto}
+  dialog{border:1px solid var(--line);border-radius:10px;max-width:520px;width:92%}
+  .hist{border-bottom:1px solid var(--line);padding:8px 0;font-size:14px}
+  .hist small{color:var(--muted);display:block}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<dialog id="dlg"></dialog>
+
+<script>
+/* ============ 1) PASTE YOUR SUPABASE DETAILS HERE ============ */
+const SUPABASE_URL = 'https://gxdmuhoeuvgzuwsficeq.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd4ZG11aG9ldXZnenV3c2ZpY2VxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUzNDkwODUsImV4cCI6MjExMDkyNTA4NX0.8AP8RylHw1RPc62mwCmJbNyMhv9KdfJw-z2_CmgZZVs';
+/* =============================================================== */
+
+const STALE_DAYS = 90;
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let me = null;          // my profile
+let people = [];        // all profiles
+let tab = null;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = d => new Date(d).toLocaleString('en-GB', {dateStyle:'medium', timeStyle:'short'});
+const money = n => Number(n || 0).toLocaleString('en-US');
+const daysAgo = d => Math.floor((Date.now() - new Date(d)) / 86400000);
+const nameOf = id => (people.find(p => p.id === id) || {}).full_name || '—';
+const reps = () => people.filter(p => p.role === 'rep');
+
+function normDomain(d){
+  let r = String(d || '').trim().toLowerCase();
+  r = r.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/^www\d*\./, '').replace(/[\/?#].*$/, '').replace(/:\d+$/, '').replace(/\.$/, '');
+  return r || null;
+}
+function show(el, html){ el.innerHTML = html; }
+
+/* ---------------- Auth ---------------- */
+async function boot(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) return loginView();
+  const { data: prof, error } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
+  if(error || !prof){ await sb.auth.signOut(); return loginView('Could not load your profile.'); }
+  me = prof;
+  const { data: all } = await sb.from('profiles').select('*').order('full_name');
+  people = all || [];
+  shell();
+}
+
+function loginView(err){
+  show($('#app'), `
+  <div class="center card">
+    <h2>Sales CRM — Sign in</h2>
+    <label>Email</label><input id="em" type="email" autocomplete="username">
+    <label>Password</label><input id="pw" type="password" autocomplete="current-password">
+    <div style="margin-top:14px"><button class="btn" id="go">Sign in</button></div>
+    <div id="lmsg">${err ? `<div class="msg err">${esc(err)}</div>` : ''}</div>
+  </div>`);
+  const go = async () => {
+    const { error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
+    if(error) show($('#lmsg'), `<div class="msg err">${esc(error.message)}</div>`); else boot();
+  };
+  $('#go').onclick = go;
+  $('#pw').onkeydown = e => { if(e.key === 'Enter') go(); };
+}
+
+/* ---------------- Shell + tabs ---------------- */
+function tabsFor(role){
+  if(role === 'rep')     return [['mine','My Leads'], ['add','Add Lead']];
+  if(role === 'manager') return [['all','All Leads'], ['expired','Expired (90d)'], ['add','Add Lead'], ['dash','Dashboard']];
+  return [['dash','Dashboard'], ['all','All Leads']];
+}
+function shell(){
+  const tabs = tabsFor(me.role);
+  if(!tab || !tabs.find(t => t[0] === tab)) tab = tabs[0][0];
+  show($('#app'), `
+    <header><h1>Sales CRM</h1><span class="who">${esc(me.full_name)} · ${esc(me.role)}</span>
+      <button class="sm" id="out">Sign out</button></header>
+    <nav>${tabs.map(t => `<button data-tab="${t[0]}" class="${t[0] === tab ? 'on' : ''}">${t[1]}</button>`).join('')}</nav>
+    <main id="view"></main>`);
+  $('#out').onclick = async () => { await sb.auth.signOut(); me = null; loginView(); };
+  document.querySelectorAll('nav button').forEach(b => b.onclick = () => { tab = b.dataset.tab; shell(); });
+  ({ mine: myLeadsView, all: allLeadsView, expired: expiredView, add: addView, dash: dashView })[tab]();
+}
+
+/* ---------------- Add lead ---------------- */
+function addView(){
+  const isMgr = me.role === 'manager';
+  show($('#view'), `
+  <div class="card"><h2>Add a new lead</h2>
+    <label>Company website *</label>
+    <input id="dom" placeholder="e.g. company.com or https://www.company.com/en">
+    <div class="muted" id="domprev" style="font-size:12px;margin-top:4px"></div>
+    ${isMgr ? `<label><input type="checkbox" id="nosite" style="width:auto"> This company has no website (manager approval)</label>` : ''}
+    <label>Company name *</label><input id="cn">
+    <label>Contact name</label><input id="ct">
+    <label>Contact phone</label><input id="ph">
+    ${isMgr ? `<label>Assign to</label><select id="own">${reps().map(r => `<option value="${r.id}">${esc(r.full_name)}</option>`).join('')}</select>` : ''}
+    <div style="margin-top:14px" class="row"><button class="btn" id="save">Save lead</button></div>
+    <div id="amsg"></div>
+  </div>`);
+  $('#dom').oninput = () => { const n = normDomain($('#dom').value); $('#domprev').textContent = n ? `Will be saved as: ${n}` : ''; };
+  $('#save').onclick = async () => {
+    const msg = $('#amsg'); msg.innerHTML = '';
+    const nosite = isMgr && $('#nosite').checked;
+    const domain = nosite ? null : normDomain($('#dom').value);
+    const company = $('#cn').value.trim();
+    if(!company) return show(msg, `<div class="msg err">Company name is required.</div>`);
+    if(!nosite && !domain) return show(msg, `<div class="msg err">Company website is required.</div>`);
+
+    if(domain){
+      const { data: dup, error: e1 } = await sb.rpc('check_domain', { d: domain });
+      if(e1) return show(msg, `<div class="msg err">${esc(e1.message)}</div>`);
+      if(dup && dup.length){
+        const x = dup[0];
+        return show(msg, `<div class="msg warn"><b>${esc(domain)}</b> is already in the system${x.is_mine ? ' (it is yours)' : ''}.<br>
+          Owner: <b>${esc(x.owner_name)}</b> · Company: ${esc(x.company_name)} · Added: ${fmt(x.added_at)}</div>`);
+      }
+    }
+    const row = {
+      domain, company_name: company,
+      contact_name: $('#ct').value.trim() || null, contact_phone: $('#ph').value.trim() || null,
+      owner_id: isMgr ? $('#own').value : me.id
+    };
+    const { error } = await sb.from('leads').insert(row);
+    if(error){
+      const dupErr = error.code === '23505';
+      return show(msg, `<div class="msg err">${dupErr ? 'This website already exists in the system.' : esc(error.message)}</div>`);
+    }
+    show(msg, `<div class="msg ok">Lead saved. Entry time is recorded automatically.</div>`);
+    ['dom','cn','ct','ph'].forEach(id => $('#'+id).value = ''); $('#domprev').textContent = '';
+  };
+}
+
+/* ---------------- Lead tables ---------------- */
+function leadRows(leads, opts = {}){
+  if(!leads.length) return `<p class="muted">Nothing here yet.</p>`;
+  const mgr = me.role === 'manager';
+  return `<div class="tablewrap"><table>
+    <tr><th>Company</th><th>Website</th>${opts.showOwner ? '<th>Owner</th>' : ''}<th>Added</th><th>Idle</th><th>Status</th><th></th></tr>
+    ${leads.map(l => `<tr>
+      <td><b>${esc(l.company_name)}</b><br><span class="muted">${esc(l.contact_name || '')} ${esc(l.contact_phone || '')}</span></td>
+      <td>${esc(l.domain || '—')}</td>
+      ${opts.showOwner ? `<td>${esc(nameOf(l.owner_id))}</td>` : ''}
+      <td>${fmt(l.created_at)}</td>
+      <td>${daysAgo(l.last_activity_at)}d</td>
+      <td><span class="pill ${l.status}">${l.status}${l.status === 'won' ? ' · ' + money(l.deal_value) : ''}</span></td>
+      <td><div class="row">
+        <button class="sm" data-a="hist" data-id="${l.id}">History</button>
+        ${l.status === 'open' && (l.owner_id === me.id || mgr) ? `
+          <button class="sm" data-a="note" data-id="${l.id}">+ Note</button>
+          <button class="sm ok" data-a="won" data-id="${l.id}">Won</button>
+          <button class="sm bad" data-a="lost" data-id="${l.id}">Lost</button>` : ''}
+        ${mgr && l.status === 'open' ? `
+          <select data-re="${l.id}" style="width:auto;padding:4px"><option value="">Reassign…</option>
+            ${reps().filter(r => r.id !== l.owner_id).map(r => `<option value="${r.id}">${esc(r.full_name)}</option>`).join('')}
+          </select>` : ''}
+      </div></td></tr>`).join('')}
+  </table></div>`;
+}
+
+function wireActions(reload){
+  document.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+    const id = b.dataset.id, a = b.dataset.a;
+    if(a === 'hist') return history(id);
+    if(a === 'note'){
+      const note = prompt('Note (call, meeting, follow-up…):'); if(!note) return;
+      const { error } = await sb.from('lead_activity').insert({ lead_id: id, note });
+      if(error) alert(error.message); else reload();
+    }
+    if(a === 'won'){
+      const v = prompt('Deal value (number):', '0'); if(v === null) return;
+      const { error } = await sb.from('leads').update({ status: 'won', deal_value: Number(v) || 0 }).eq('id', id);
+      if(error) alert(error.message); else reload();
+    }
+    if(a === 'lost'){
+      if(!confirm('Mark this lead as lost?')) return;
+      const { error } = await sb.from('leads').update({ status: 'lost' }).eq('id', id);
+      if(error) alert(error.message); else reload();
+    }
+  });
+  document.querySelectorAll('[data-re]').forEach(s => s.onchange = async () => {
+    if(!s.value) return;
+    if(!confirm(`Reassign to ${nameOf(s.value)}? The 90-day clock restarts.`)) { s.value = ''; return; }
+    const { error } = await sb.rpc('reassign_lead', { p_lead: s.dataset.re, p_new_owner: s.value });
+    if(error) alert(error.message); else reload();
+  });
+}
+
+async function history(id){
+  const [{ data: acts }, { data: trs }] = await Promise.all([
+    sb.from('lead_activity').select('*').eq('lead_id', id).order('created_at', { ascending: false }),
+    me.role === 'rep' ? Promise.resolve({ data: [] }) : sb.from('lead_transfers').select('*').eq('lead_id', id).order('created_at', { ascending: false })
+  ]);
+  const items = [
+    ...(acts || []).map(a => ({ t: a.created_at, h: `<b>${esc(nameOf(a.user_id))}</b>: ${esc(a.note)}` })),
+    ...(trs || []).map(x => ({ t: x.created_at, h: `Transferred ${esc(nameOf(x.from_owner))} → <b>${esc(nameOf(x.to_owner))}</b> by ${esc(nameOf(x.by_user))}` }))
+  ].sort((a, b) => new Date(b.t) - new Date(a.t));
+  const d = $('#dlg');
+  d.innerHTML = `<h2>History</h2>${items.length ? items.map(i => `<div class="hist"><small>${fmt(i.t)}</small>${i.h}</div>`).join('') : '<p class="muted">No activity yet.</p>'}
+    <div style="margin-top:12px"><button class="btn sec" onclick="document.getElementById('dlg').close()">Close</button></div>`;
+  d.showModal();
+}
+
+async function myLeadsView(){
+  show($('#view'), `<div class="card"><h2>My Leads</h2><p class="muted">Loading…</p></div>`);
+  const { data, error } = await sb.from('leads').select('*').eq('owner_id', me.id).order('created_at', { ascending: false });
+  if(error) return show($('#view'), `<div class="msg err">${esc(error.message)}</div>`);
+  const stale = data.filter(l => l.status === 'open' && daysAgo(l.last_activity_at) >= STALE_DAYS - 14).length;
+  show($('#view'), `<div class="card"><h2>My Leads (${data.length})</h2>
+    ${stale ? `<div class="msg warn">${stale} lead(s) have had no activity for ${STALE_DAYS - 14}+ days. Leads idle for ${STALE_DAYS} days go back to the manager.</div>` : ''}
+    ${leadRows(data)}</div>`);
+  wireActions(myLeadsView);
+}
+
+async function allLeadsView(){
+  show($('#view'), `<div class="card"><h2>All Leads</h2><p class="muted">Loading…</p></div>`);
+  const { data, error } = await sb.from('leads').select('*').order('created_at', { ascending: false });
+  if(error) return show($('#view'), `<div class="msg err">${esc(error.message)}</div>`);
+  show($('#view'), `<div class="card"><h2>All Leads (${data.length})</h2>
+    <div class="row" style="margin-bottom:10px"><input id="q" placeholder="Search company or website…" style="max-width:320px"></div>
+    <div id="tbl">${leadRows(data, { showOwner: true })}</div></div>`);
+  const draw = () => {
+    const q = $('#q').value.toLowerCase();
+    const f = data.filter(l => (l.company_name + ' ' + (l.domain || '')).toLowerCase().includes(q));
+    $('#tbl').innerHTML = leadRows(f, { showOwner: true }); wireActions(allLeadsView);
+  };
+  $('#q').oninput = draw; wireActions(allLeadsView);
+}
+
+async function expiredView(){
+  show($('#view'), `<div class="card"><h2>Expired leads</h2><p class="muted">Loading…</p></div>`);
+  const cutoff = new Date(Date.now() - STALE_DAYS * 86400000).toISOString();
+  const { data, error } = await sb.from('leads').select('*').eq('status', 'open').lt('last_activity_at', cutoff).order('last_activity_at');
+  if(error) return show($('#view'), `<div class="msg err">${esc(error.message)}</div>`);
+  show($('#view'), `<div class="card"><h2>Expired leads (${data.length})</h2>
+    <p class="muted">Open leads with no activity for ${STALE_DAYS}+ days. Pick a new owner to restart the clock.</p>
+    ${leadRows(data, { showOwner: true })}</div>`);
+  wireActions(expiredView);
+}
+
+/* ---------------- Dashboard ---------------- */
+async function dashView(){
+  show($('#view'), `<div class="card"><p class="muted">Loading…</p></div>`);
+  const { data, error } = await sb.rpc('team_stats');
+  if(error) return show($('#view'), `<div class="msg err">${esc(error.message)}</div>`);
+  const sum = k => data.reduce((a, r) => a + Number(r[k] || 0), 0);
+  const tot = sum('total_leads'), won = sum('won_leads');
+  show($('#view'), `
+    <div class="grid" style="margin-bottom:16px">
+      <div class="stat"><b>${tot}</b><span>Total leads</span></div>
+      <div class="stat"><b>${sum('open_leads')}</b><span>Open</span></div>
+      <div class="stat"><b>${won}</b><span>Won</span></div>
+      <div class="stat"><b>${tot ? Math.round(100 * won / tot) : 0}%</b><span>Conversion</span></div>
+      <div class="stat"><b>${money(sum('won_value'))}</b><span>Won value</span></div>
+      <div class="stat"><b>${sum('stale_leads')}</b><span>Idle ${STALE_DAYS}+ days</span></div>
+    </div>
+    <div class="card"><h2>Team performance</h2><div class="tablewrap"><table>
+      <tr><th>Rep</th><th>Leads</th><th>Open</th><th>Won</th><th>Lost</th><th>Conv.</th><th>Won value</th><th>Idle ${STALE_DAYS}d+</th></tr>
+      ${data.map(r => `<tr><td><b>${esc(r.rep_name)}</b></td><td>${r.total_leads}</td><td>${r.open_leads}</td><td>${r.won_leads}</td>
+        <td>${r.lost_leads}</td><td>${r.conversion_pct ?? 0}%</td><td>${money(r.won_value)}</td><td>${r.stale_leads}</td></tr>`).join('')}
+    </table></div></div>`);
+}
+
+boot();
+</script>
+</body>
+</html>
